@@ -15,6 +15,11 @@ uniform float rad_br;
 uniform vec2 loc;
 uniform vec2 rect_size;
 
+uniform float border_width;
+uniform float drop_shadow;
+uniform vec4 bg_color;
+uniform vec4 border_color;
+
 float sdRoundBox(in vec2 p,in vec2 b,in vec4 r)
 {
     r.xy=(p.x>0.)?r.xy:r.zw;
@@ -54,9 +59,38 @@ void main()
     }else if(d_br<ra.y){
         delta=(ra.y-d_br)/ra.y*fwidth(d)*2.;
     }
+    vec4 calc_bg_color;
     
-    float a=1.-smoothstep(1.-delta,1.,1.+d);
+    vec2 p_border=vec2(rect_size.x-border_width*2.,0.);
+    float d_border=sdRoundBox(p_border,si,ra);
     
-    gl_FragColor=vec4(0.,0.,0.,a);
+    vec2 p_drop_shadow=vec2(rect_size.x+drop_shadow*2.,0.);
+    float d_drop_shadow=sdRoundBox(p_drop_shadow,si,ra);
+    
+    if(d>d_border&&d<=0.){
+        calc_bg_color=border_color;
+        calc_bg_color*=1.-smoothstep(1.-delta/2.,1.+delta/2.,1.+d);
+        
+    }else if(d>0.&&d<d_drop_shadow){
+        calc_bg_color=vec4(.1,.1,.1,.7);
+        calc_bg_color*=1.-smoothstep(0.,1.,d/d_drop_shadow);
+    }else{
+        calc_bg_color=bg_color;
+        calc_bg_color*=1.-smoothstep(1.-3.*delta/4.,1.+delta/4.,1.+d);
+    }
+    
+    // now we need to adjust the rect_size to account for the border width
+    // and then blend the border color with the background color
+    
+    // TODO: add border width
+    
+    // lastly, add the drop shadow
+    // this expands the rect_size to account for the drop shadow
+    // and then blends the shadow color with the previously determined color
+    // for this pixel
+    
+    // TDOD: add drop shadow
+    
+    gl_FragColor=calc_bg_color;
 }
 
