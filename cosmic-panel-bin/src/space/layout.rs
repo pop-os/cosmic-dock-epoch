@@ -12,12 +12,7 @@ use smithay::utils::{IsAlive, Physical, Size};
 use smithay::{desktop::Window, reexports::wayland_server::Resource, utils::Rectangle};
 
 impl PanelSpace {
-    pub(crate) fn layout(&mut self) -> anyhow::Result<()> {
-        self.space.refresh();
-        let mut bg_color = self.bg_color();
-        for c in 0..3 {
-            bg_color[c] *= bg_color[3];
-        }
+    pub(crate) fn layout_(&mut self) -> anyhow::Result<()> {
         let gap = self.gap();
         let padding_u32 = self.config.padding() as u32;
         let padding_scaled = padding_u32 as f64 * self.scale;
@@ -112,6 +107,52 @@ impl PanelSpace {
         }
 
         self.space.refresh();
+        let is_dock = !self.config.expand_to_edges()
+            || self
+                .animate_state
+                .as_ref()
+                .is_some_and(|a| !(a.cur.expanded > 0.5));
+        let mut windows_left = to_map
+            .iter()
+            .cloned()
+            .filter_map(|w| {
+                self.clients_left
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, c)| {
+                        if Some(c.client.id()) == w.toplevel().wl_surface().client().map(|c| c.id())
+                        {
+                            Some((i, w.clone(), c.minimize_priority))
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect_vec();
+        make_indices_contiguous(&mut windows_left);
+
+        let mut windows_center = to_map
+            .iter()
+            .cloned()
+            .filter_map(|w| {
+                self.clients_center
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, c)| {
+                        if Some(c.client.id()) == w.toplevel().wl_surface().client().map(|c| c.id())
+                        {
+                            Some((i, w.clone(), c.minimize_priority))
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect_vec();
+        make_indices_contiguous(&mut windows_center);
 
         let mut windows_right = to_map
             .iter()
@@ -134,46 +175,48 @@ impl PanelSpace {
             .collect_vec();
         make_indices_contiguous(&mut windows_right);
 
-        let mut windows_center = to_map
-            .iter()
-            .cloned()
-            .filter_map(|w| {
-                self.clients_center
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .enumerate()
-                    .find_map(|(i, c)| {
-                        if Some(c.client.id()) == w.toplevel().wl_surface().client().map(|c| c.id())
-                        {
-                            Some((i, w.clone(), c.minimize_priority))
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .collect_vec();
-        make_indices_contiguous(&mut windows_center);
-        let mut windows_left = to_map
-            .iter()
-            .cloned()
-            .filter_map(|w| {
-                self.clients_left
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .enumerate()
-                    .find_map(|(i, c)| {
-                        if Some(c.client.id()) == w.toplevel().wl_surface().client().map(|c| c.id())
-                        {
-                            Some((i, w.clone(), c.minimize_priority))
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .collect_vec();
-        make_indices_contiguous(&mut windows_left);
+        if is_dock {
+            windows_center = windows_left
+                .drain(..)
+                .chain(windows_center)
+                .chain(windows_right.drain(..))
+                .collect_vec();
+        }
+        self.layout(windows_left, windows_center, windows_right)
+    }
+
+    pub(crate) fn layout(
+        &mut self,
+        mut windows_left: Vec<(usize, Window, Option<u32>)>,
+        mut windows_center: Vec<(usize, Window, Option<u32>)>,
+        mut windows_right: Vec<(usize, Window, Option<u32>)>,
+    ) -> anyhow::Result<()> {
+        self.space.refresh();
+        let mut bg_color = self.bg_color();
+        for c in 0..3 {
+            bg_color[c] *= bg_color[3];
+        }
+        let gap = self.gap();
+        let padding_u32 = self.config.padding() as u32;
+        let padding_scaled = padding_u32 as f64 * self.scale;
+        let anchor = self.config.anchor();
+        let spacing_u32 = self.config.spacing() as u32;
+        let spacing_scaled = spacing_u32 as f64 * self.scale;
+        // First try partitioning the panel evenly into N spaces.
+        // If all windows fit into each space, then set their offsets and return.
+        let list_thickness = match anchor {
+            PanelAnchor::Left | PanelAnchor::Right => self.dimensions.w,
+            PanelAnchor::Top | PanelAnchor::Bottom => self.dimensions.h,
+        };
+        let is_dock = !self.config.expand_to_edges();
+
+        let mut num_lists: u32 = 0;
+        if windows_left.len() + windows_right.len() > 0 {
+            num_lists += 2;
+        }
+        if !windows_center.is_empty() {
+            num_lists += 1;
+        }
 
         fn map_fn(
             (i, w, _): &(usize, Window, Option<u32>),
@@ -204,7 +247,6 @@ impl PanelSpace {
         let right = windows_right
             .iter()
             .map(|e| map_fn(e, anchor, Alignment::Right, self.scale));
-
         let right_sum_scaled = right.clone().map(|(_, _, length, _)| length).sum::<i32>() as f64
             + spacing_scaled * windows_right.len().saturating_sub(1) as f64;
 
@@ -384,12 +426,12 @@ impl PanelSpace {
         let mut map_windows = |windows: IterMut<'_, (usize, Window, Option<u32>)>,
                                mut prev|
          -> f64 {
-            for (i, w, minimize_priority) in windows {
+            for (_, w, minimize_priority) in windows {
                 // XXX this is a hack to get the logical size of the window
                 // TODO improve how this is done
                 let size = w.bbox().size.to_f64().downscale(self.scale);
 
-                let cur: f64 = prev + spacing_u32 as f64 * *i as f64;
+                let cur: f64 = prev;
                 let (x, y);
                 match anchor {
                     PanelAnchor::Left | PanelAnchor::Right => {
@@ -402,7 +444,7 @@ impl PanelSpace {
                             cur,
                         );
                         (x, y) = (cur.0 as i32, cur.1 as i32);
-                        prev += size.h as f64;
+                        prev += size.h as f64 + spacing_u32 as f64;
                         self.space.map_element(w.clone(), (x, y), false);
                     }
                     PanelAnchor::Top | PanelAnchor::Bottom => {
@@ -415,7 +457,7 @@ impl PanelSpace {
                                 ),
                         );
                         (x, y) = (cur.0 as i32, cur.1 as i32);
-                        prev += size.w as f64;
+                        prev += size.w as f64 + spacing_u32 as f64;
                         self.space.map_element(w.clone(), (x, y), false);
                     }
                 };
@@ -441,12 +483,10 @@ impl PanelSpace {
             prev
         };
         let mut prev: f64 = container_lengthwise_pos as f64 + padding_u32 as f64;
-
         prev = map_windows(windows_left.iter_mut(), prev);
         // will be already offset if dock
         prev += center_left_spacing;
         map_windows(windows_center.iter_mut(), prev);
-
         let prev = container_lengthwise_pos as f64 + container_length as f64
             - padding_u32 as f64
             - right_sum;

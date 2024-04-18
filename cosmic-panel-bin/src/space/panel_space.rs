@@ -764,7 +764,7 @@ impl PanelSpace {
                     }));
                 } else if self.layer.is_some() {
                     should_render = if self.is_dirty {
-                        let update_res = self.layout();
+                        let update_res = self.layout_();
 
                         update_res.is_ok()
                     } else {
