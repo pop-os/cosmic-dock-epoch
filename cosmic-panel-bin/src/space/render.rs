@@ -58,7 +58,9 @@ impl PanelSpace {
                         &[Rectangle::from_loc_and_size((0, 0), dim)],
                     );
                     if let Ok(sync_point) = frame.finish() {
-                        sync_point.wait();
+                        if let Err(err) = sync_point.wait() {
+                            tracing::error!("Error waiting for sync point: {:?}", err);
+                        }
                         self.egl_surface.as_ref().unwrap().swap_buffers(None)?;
                     }
                     let wl_surface = self.layer.as_ref().unwrap().wl_surface();
@@ -88,7 +90,7 @@ impl PanelSpace {
                     .chain(
                         self.space
                             .elements()
-                            .map(|w| {
+                            .filter_map(|w| {
                                 let loc = self
                                     .space
                                     .element_location(w)
@@ -96,16 +98,18 @@ impl PanelSpace {
                                     .to_f64()
                                     .to_physical(self.scale)
                                     .to_i32_round();
-                                render_elements_from_surface_tree(
-                                    renderer,
-                                    w.toplevel().wl_surface(),
-                                    loc,
-                                    self.scale,
-                                    1.0,
-                                    smithay::backend::renderer::element::Kind::Unspecified,
-                                )
-                                .into_iter()
-                                .map(|r| PanelRenderElement::Wayland(r))
+                                w.toplevel().map(|t| {
+                                    render_elements_from_surface_tree(
+                                        renderer,
+                                        t.wl_surface(),
+                                        loc,
+                                        self.scale,
+                                        1.0,
+                                        smithay::backend::renderer::element::Kind::Unspecified,
+                                    )
+                                    .into_iter()
+                                    .map(|r| PanelRenderElement::Wayland(r))
+                                })
                             })
                             .flatten(),
                     )
@@ -125,7 +129,7 @@ impl PanelSpace {
                 self.egl_surface.as_ref().unwrap().swap_buffers(None)?;
 
                 for window in self.space.elements() {
-                    let output = o.clone();
+                    let output = *o;
                     window.send_frame(o, Duration::from_millis(time as u64), None, move |_, _| {
                         Some(output.clone())
                     });

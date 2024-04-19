@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::space_container::SpaceContainer;
 use anyhow::anyhow;
-use cosmic_config::{ConfigGet, CosmicConfigEntry};
+use cosmic::cosmic_config::{ConfigGet, CosmicConfigEntry};
 use cosmic_panel_config::{CosmicPanelConfig, CosmicPanelContainerConfig};
 use cosmic_theme::{palette, Theme, ThemeMode};
 use notify::RecommendedWatcher;

@@ -286,7 +286,9 @@ impl WrapperSpace for SpaceContainer {
 
     fn add_window(&mut self, s_top_level: smithay::desktop::Window) {
         // add window to the space with a client that matches the window
-        let w_client = s_top_level.toplevel().wl_surface().client().map(|c| c.id());
+        let w_client = s_top_level
+            .toplevel()
+            .and_then(|t| t.wl_surface().client().map(|c| c.id()));
 
         if let Some(space) = self.space_list.iter_mut().find(|space| {
             space

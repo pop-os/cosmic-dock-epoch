@@ -14,14 +14,14 @@ use super::PanelSpace;
 
 impl PanelSpace {
     pub(crate) fn close_popups(&mut self) {
-        for w in &mut self.space.elements() {
-            for (p, _) in PopupManager::popups_for_surface(w.toplevel().wl_surface()) {
+        for t in &mut self.space.elements().filter_map(|w| w.toplevel()) {
+            for (p, _) in PopupManager::popups_for_surface(t.wl_surface()) {
                 match p {
                     PopupKind::Xdg(p) => {
                         if !self
                             .s_hovered_surface
                             .iter()
-                            .any(|hs| &hs.surface == w.toplevel().wl_surface())
+                            .any(|hs| &hs.surface == t.wl_surface())
                         {
                             p.send_popup_done();
                         }
