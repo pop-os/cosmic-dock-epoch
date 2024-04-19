@@ -9,6 +9,8 @@ name = "cosmic-panel"
 path = "src/main.rs"
 
 [dependencies]
+calloop = { version = "0.13.0", features = ["executor"] }
+ordered-float = "4.2.0"
 smithay = { git = "https://github.com/smithay/smithay", default-features = false, features = [
     "use_system_lib",
     "desktop",
@@ -59,6 +61,8 @@ tokio = { version = "1", features = [
 ] }
 csscolorparser = "0.6.2"
 libcosmic = { git = "https://github.com/pop-os/libcosmic" }
+iced_tiny_skia = { git = "https://github.com/pop-os/libcosmic/" }
+tiny-skia = "0.11"
 ron = "0.8"
 sendfd = "0.4"
 cosmic-notifications-util = { git = "https://github.com/pop-os/cosmic-notifications", default-features = false }

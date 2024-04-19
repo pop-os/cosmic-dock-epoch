@@ -1,5 +1,5 @@
 mod config_watching;
-// mod iced;
+mod iced;
 mod minimize;
 mod notifications;
 mod space;

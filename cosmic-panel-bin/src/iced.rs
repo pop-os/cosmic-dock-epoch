@@ -28,7 +28,7 @@ use iced_tiny_skia::{
     graphics::{damage, Viewport},
     Backend, Primitive,
 };
-pub type Element<'a, Message> = cosmic::iced::Element<'a, Message, IcedRenderer<Theme>>;
+pub type Element<'a, Message> = cosmic::iced::Element<'a, Message, cosmic::Theme, cosmic::Renderer>;
 
 use ordered_float::OrderedFloat;
 use smithay::{
@@ -62,6 +62,9 @@ use smithay::{
         Transform,
     },
 };
+use xdg_shell_wrapper::shared_state::GlobalState;
+
+use crate::space::PanelSpace;
 
 pub struct IcedElement<P: Program + Send + 'static>(Arc<Mutex<IcedElementInternal<P>>>);
 
@@ -99,7 +102,7 @@ pub trait Program {
     fn update(
         &mut self,
         message: Self::Message,
-        loop_handle: &LoopHandle<'static, crate::state::State>,
+        loop_handle: &LoopHandle<'static, GlobalState<PanelSpace>>,
     ) -> Command<Self::Message> {
         let _ = (message, loop_handle);
         Command::none()
@@ -120,10 +123,11 @@ pub trait Program {
     }
 }
 
-struct ProgramWrapper<P: Program>(P, LoopHandle<'static, crate::state::State>);
+struct ProgramWrapper<P: Program>(P, LoopHandle<'static, GlobalState<PanelSpace>>);
 impl<P: Program> IcedProgram for ProgramWrapper<P> {
     type Message = <P as Program>::Message;
-    type Renderer = IcedRenderer<Theme>;
+    type Renderer = cosmic::Renderer;
+    type Theme = cosmic::Theme;
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         self.0.update(message, &self.1)
@@ -146,12 +150,12 @@ struct IcedElementInternal<P: Program + Send + 'static> {
 
     // iced
     theme: Theme,
-    renderer: IcedRenderer<Theme>,
+    renderer: cosmic::Renderer,
     state: State<ProgramWrapper<P>>,
     debug: Debug,
 
     // futures
-    handle: LoopHandle<'static, crate::state::State>,
+    handle: LoopHandle<'static, GlobalState<PanelSpace>>,
     scheduler: Scheduler<<P as Program>::Message>,
     executor_token: Option<RegistrationToken>,
     rx: Receiver<<P as Program>::Message>,
@@ -232,7 +236,7 @@ impl<P: Program + Send + 'static> IcedElement<P> {
     pub fn new(
         program: P,
         size: impl Into<Size<i32, Logical>>,
-        handle: LoopHandle<'static, crate::state::State>,
+        handle: LoopHandle<'static, GlobalState<PanelSpace>>,
         theme: cosmic::Theme,
     ) -> IcedElement<P> {
         let size = size.into();
@@ -301,7 +305,7 @@ impl<P: Program + Send + 'static> IcedElement<P> {
         Size::from((node.width.ceil() as i32, node.height.ceil() as i32))
     }
 
-    pub fn loop_handle(&self) -> LoopHandle<'static, crate::state::State> {
+    pub fn loop_handle(&self) -> LoopHandle<'static, GlobalState<PanelSpace>> {
         self.0.lock().unwrap().handle.clone()
     }
 
@@ -358,7 +362,6 @@ impl<P: Program + Send + 'static + Clone> IcedElement<P> {
 }
 
 impl<P: Program + Send + 'static> IcedElementInternal<P> {
-    #[profiling::function]
     fn update(&mut self, mut force: bool) -> Vec<Action<<P as Program>::Message>> {
         while let Ok(message) = self.rx.try_recv() {
             self.state.queue_message(message);
@@ -407,11 +410,11 @@ impl<P: Program + Send + 'static> IcedElementInternal<P> {
     }
 }
 
-impl<P: Program + Send + 'static> PointerTarget<crate::state::State> for IcedElement<P> {
+impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for IcedElement<P> {
     fn enter(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         event: &MotionEvent,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -428,8 +431,8 @@ impl<P: Program + Send + 'static> PointerTarget<crate::state::State> for IcedEle
 
     fn motion(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         event: &MotionEvent,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -443,16 +446,16 @@ impl<P: Program + Send + 'static> PointerTarget<crate::state::State> for IcedEle
 
     fn relative_motion(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         _event: &RelativeMotionEvent,
     ) {
     }
 
     fn button(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         event: &ButtonEvent,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -471,8 +474,8 @@ impl<P: Program + Send + 'static> PointerTarget<crate::state::State> for IcedEle
 
     fn axis(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         frame: AxisFrame,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -494,12 +497,12 @@ impl<P: Program + Send + 'static> PointerTarget<crate::state::State> for IcedEle
         let _ = internal.update(true);
     }
 
-    fn frame(&self, _seat: &Seat<crate::state::State>, _data: &mut crate::state::State) {}
+    fn frame(&self, _seat: &Seat<GlobalState<PanelSpace>>, _data: &mut GlobalState<PanelSpace>) {}
 
     fn leave(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         _serial: Serial,
         _time: u32,
     ) {
@@ -512,67 +515,67 @@ impl<P: Program + Send + 'static> PointerTarget<crate::state::State> for IcedEle
 
     fn gesture_swipe_begin(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GestureSwipeBeginEvent,
     ) {
     }
     fn gesture_swipe_update(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GestureSwipeUpdateEvent,
     ) {
     }
     fn gesture_swipe_end(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GestureSwipeEndEvent,
     ) {
     }
     fn gesture_pinch_begin(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GesturePinchBeginEvent,
     ) {
     }
     fn gesture_pinch_update(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GesturePinchUpdateEvent,
     ) {
     }
     fn gesture_pinch_end(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GesturePinchEndEvent,
     ) {
     }
     fn gesture_hold_begin(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GestureHoldBeginEvent,
     ) {
     }
     fn gesture_hold_end(
         &self,
-        _: &Seat<crate::state::State>,
-        _: &mut crate::state::State,
+        _: &Seat<GlobalState<PanelSpace>>,
+        _: &mut GlobalState<PanelSpace>,
         _: &GestureHoldEndEvent,
     ) {
     }
 }
 
-impl<P: Program + Send + 'static> KeyboardTarget<crate::state::State> for IcedElement<P> {
+impl<P: Program + Send + 'static> KeyboardTarget<GlobalState<PanelSpace>> for IcedElement<P> {
     fn enter(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         _keys: Vec<KeysymHandle<'_>>,
         _serial: Serial,
     ) {
@@ -581,8 +584,8 @@ impl<P: Program + Send + 'static> KeyboardTarget<crate::state::State> for IcedEl
 
     fn leave(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         _serial: Serial,
     ) {
         // TODO remove all held keys
@@ -590,8 +593,8 @@ impl<P: Program + Send + 'static> KeyboardTarget<crate::state::State> for IcedEl
 
     fn key(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         _key: KeysymHandle<'_>,
         _state: KeyState,
         _serial: Serial,
@@ -602,8 +605,8 @@ impl<P: Program + Send + 'static> KeyboardTarget<crate::state::State> for IcedEl
 
     fn modifiers(
         &self,
-        _seat: &Seat<crate::state::State>,
-        _data: &mut crate::state::State,
+        _seat: &Seat<GlobalState<PanelSpace>>,
+        _data: &mut GlobalState<PanelSpace>,
         modifiers: ModifiersState,
         _serial: Serial,
     ) {
@@ -692,7 +695,6 @@ impl<P: Program + Send + 'static> SpaceElement for IcedElement<P> {
         RenderZindex::Shell as u8
     }
 
-    #[profiling::function]
     fn refresh(&self) {
         let mut internal = self.0.lock().unwrap();
         // makes partial borrows easier
