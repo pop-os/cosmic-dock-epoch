@@ -5105,6 +5105,7 @@ dependencies = [
 [[package]]
 name = "xdg-shell-wrapper"
 version = "0.1.0"
+source = "git+https://github.com/pop-os/xdg-shell-wrapper//?branch=update-smithay-sctk#e8074b3f2e0cc5dde9e695b6022a64d6ae344a7f"
 dependencies = [
  "anyhow",
  "cosmic-client-toolkit",
@@ -5129,6 +5130,7 @@ dependencies = [
 [[package]]
 name = "xdg-shell-wrapper-config"
 version = "0.1.0"
+source = "git+https://github.com/pop-os/xdg-shell-wrapper//?branch=update-smithay-sctk#e8074b3f2e0cc5dde9e695b6022a64d6ae344a7f"
 dependencies = [
  "serde",
  "wayland-protocols-wlr",

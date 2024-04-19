@@ -1,19 +1,82 @@
 use std::time::Duration;
 
-use super::{corner_element::RoundedRectangleShader, panel_space::PanelRenderElement, PanelSpace};
+use super::{
+    corner_element::{RoundedRectangleShader, RoundedRectangleShaderElement},
+    PanelSpace,
+};
 use cctk::wayland_client::{Proxy, QueueHandle};
 
 use sctk::shell::WaylandSurface;
 use smithay::{
     backend::renderer::{
         damage::OutputDamageTracker,
-        element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
-        gles::GlesRenderer,
+        element::{
+            surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
+            RenderElement, UnderlyingStorage,
+        },
+        gles::{GlesError, GlesFrame, GlesRenderer},
         Bind, Frame, Renderer, Unbind,
     },
-    utils::Rectangle,
+    utils::{Buffer, Physical, Rectangle},
 };
 use xdg_shell_wrapper::{shared_state::GlobalState, space::WrapperSpace};
+
+pub(crate) enum PanelRenderElement {
+    Wayland(WaylandSurfaceRenderElement<GlesRenderer>),
+    RoundedRectangle(RoundedRectangleShaderElement),
+}
+
+impl smithay::backend::renderer::element::Element for PanelRenderElement {
+    fn id(&self) -> &smithay::backend::renderer::element::Id {
+        match self {
+            Self::Wayland(e) => e.id(),
+            Self::RoundedRectangle(e) => e.id(),
+        }
+    }
+
+    fn current_commit(&self) -> smithay::backend::renderer::utils::CommitCounter {
+        match self {
+            Self::Wayland(e) => e.current_commit(),
+            Self::RoundedRectangle(e) => e.current_commit(),
+        }
+    }
+
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        match self {
+            Self::Wayland(e) => e.src(),
+            Self::RoundedRectangle(e) => e.src(),
+        }
+    }
+
+    fn geometry(&self, scale: smithay::utils::Scale<f64>) -> Rectangle<i32, Physical> {
+        match self {
+            Self::Wayland(e) => e.geometry(scale),
+            Self::RoundedRectangle(e) => e.geometry(scale),
+        }
+    }
+}
+
+impl RenderElement<GlesRenderer> for PanelRenderElement {
+    fn draw(
+        &self,
+        frame: &mut GlesFrame<'_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+    ) -> Result<(), GlesError> {
+        match self {
+            Self::Wayland(e) => e.draw(frame, src, dst, damage),
+            Self::RoundedRectangle(e) => e.draw(frame, src, dst, damage),
+        }
+    }
+
+    fn underlying_storage(&self, renderer: &mut GlesRenderer) -> Option<UnderlyingStorage> {
+        match self {
+            PanelRenderElement::Wayland(e) => e.underlying_storage(renderer),
+            PanelRenderElement::RoundedRectangle(e) => e.underlying_storage(renderer),
+        }
+    }
+}
 
 impl PanelSpace {
     pub(crate) fn render<W: WrapperSpace>(
