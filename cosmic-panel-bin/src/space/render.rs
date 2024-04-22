@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::iced::elements::CosmicMappedInternal;
+
 use super::{
     corner_element::{RoundedRectangleShader, RoundedRectangleShaderElement},
     PanelSpace,
@@ -11,6 +13,7 @@ use smithay::{
     backend::renderer::{
         damage::OutputDamageTracker,
         element::{
+            memory::MemoryRenderBufferRenderElement,
             surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
             RenderElement, UnderlyingStorage,
         },
@@ -20,10 +23,10 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle},
 };
 use xdg_shell_wrapper::{shared_state::GlobalState, space::WrapperSpace};
-
 pub(crate) enum PanelRenderElement {
     Wayland(WaylandSurfaceRenderElement<GlesRenderer>),
     RoundedRectangle(RoundedRectangleShaderElement),
+    OverflowMenu(MemoryRenderBufferRenderElement<GlesRenderer>),
 }
 
 impl smithay::backend::renderer::element::Element for PanelRenderElement {
@@ -31,6 +34,7 @@ impl smithay::backend::renderer::element::Element for PanelRenderElement {
         match self {
             Self::Wayland(e) => e.id(),
             Self::RoundedRectangle(e) => e.id(),
+            Self::OverflowMenu(e) => e.id(),
         }
     }
 
@@ -38,6 +42,7 @@ impl smithay::backend::renderer::element::Element for PanelRenderElement {
         match self {
             Self::Wayland(e) => e.current_commit(),
             Self::RoundedRectangle(e) => e.current_commit(),
+            Self::OverflowMenu(e) => e.current_commit(),
         }
     }
 
@@ -45,6 +50,7 @@ impl smithay::backend::renderer::element::Element for PanelRenderElement {
         match self {
             Self::Wayland(e) => e.src(),
             Self::RoundedRectangle(e) => e.src(),
+            Self::OverflowMenu(e) => e.src(),
         }
     }
 
@@ -52,6 +58,7 @@ impl smithay::backend::renderer::element::Element for PanelRenderElement {
         match self {
             Self::Wayland(e) => e.geometry(scale),
             Self::RoundedRectangle(e) => e.geometry(scale),
+            Self::OverflowMenu(e) => e.geometry(scale),
         }
     }
 }
@@ -67,6 +74,7 @@ impl RenderElement<GlesRenderer> for PanelRenderElement {
         match self {
             Self::Wayland(e) => e.draw(frame, src, dst, damage),
             Self::RoundedRectangle(e) => e.draw(frame, src, dst, damage),
+            Self::OverflowMenu(e) => e.draw(frame, src, dst, damage),
         }
     }
 
@@ -74,6 +82,7 @@ impl RenderElement<GlesRenderer> for PanelRenderElement {
         match self {
             PanelRenderElement::Wayland(e) => e.underlying_storage(renderer),
             PanelRenderElement::RoundedRectangle(e) => e.underlying_storage(renderer),
+            PanelRenderElement::OverflowMenu(e) => e.underlying_storage(renderer),
         }
     }
 }
@@ -191,7 +200,13 @@ impl PanelSpace {
 
                 self.egl_surface.as_ref().unwrap().swap_buffers(None)?;
 
-                for window in self.space.elements() {
+                for window in self.space.elements().filter_map(|w| {
+                    if let CosmicMappedInternal::Window(w) = w {
+                        Some(w)
+                    } else {
+                        None
+                    }
+                }) {
                     let output = *o;
                     window.send_frame(o, Duration::from_millis(time as u64), None, move |_, _| {
                         Some(output.clone())

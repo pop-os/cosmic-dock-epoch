@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::space_container::SpaceContainer;
 use cosmic::{
     iced::{
         advanced::widget::Tree,
@@ -28,8 +29,6 @@ use iced_tiny_skia::{
     graphics::{damage, Viewport},
     Backend, Primitive,
 };
-pub type Element<'a, Message> = cosmic::iced::Element<'a, Message, cosmic::Theme, cosmic::Renderer>;
-
 use ordered_float::OrderedFloat;
 use smithay::{
     backend::{
@@ -55,16 +54,18 @@ use smithay::{
         Seat,
     },
     output::Output,
-    reexports::calloop::RegistrationToken,
-    reexports::calloop::{self, futures::Scheduler, LoopHandle},
+    reexports::calloop::{self, futures::Scheduler, LoopHandle, RegistrationToken},
     utils::{
         Buffer as BufferCoords, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size,
         Transform,
     },
+    wayland::seat::WaylandFocus,
 };
 use xdg_shell_wrapper::shared_state::GlobalState;
 
-use crate::space::PanelSpace;
+pub mod elements;
+
+pub type Element<'a, Message> = cosmic::iced::Element<'a, Message, cosmic::Theme, cosmic::Renderer>;
 
 pub struct IcedElement<P: Program + Send + 'static>(Arc<Mutex<IcedElementInternal<P>>>);
 
@@ -102,7 +103,7 @@ pub trait Program {
     fn update(
         &mut self,
         message: Self::Message,
-        loop_handle: &LoopHandle<'static, GlobalState<PanelSpace>>,
+        loop_handle: &LoopHandle<'static, GlobalState<SpaceContainer>>,
     ) -> Command<Self::Message> {
         let _ = (message, loop_handle);
         Command::none()
@@ -123,7 +124,7 @@ pub trait Program {
     }
 }
 
-struct ProgramWrapper<P: Program>(P, LoopHandle<'static, GlobalState<PanelSpace>>);
+struct ProgramWrapper<P: Program>(P, LoopHandle<'static, GlobalState<SpaceContainer>>);
 impl<P: Program> IcedProgram for ProgramWrapper<P> {
     type Message = <P as Program>::Message;
     type Renderer = cosmic::Renderer;
@@ -155,7 +156,7 @@ struct IcedElementInternal<P: Program + Send + 'static> {
     debug: Debug,
 
     // futures
-    handle: LoopHandle<'static, GlobalState<PanelSpace>>,
+    handle: LoopHandle<'static, GlobalState<SpaceContainer>>,
     scheduler: Scheduler<<P as Program>::Message>,
     executor_token: Option<RegistrationToken>,
     rx: Receiver<<P as Program>::Message>,
@@ -236,7 +237,7 @@ impl<P: Program + Send + 'static> IcedElement<P> {
     pub fn new(
         program: P,
         size: impl Into<Size<i32, Logical>>,
-        handle: LoopHandle<'static, GlobalState<PanelSpace>>,
+        handle: LoopHandle<'static, GlobalState<SpaceContainer>>,
         theme: cosmic::Theme,
     ) -> IcedElement<P> {
         let size = size.into();
@@ -305,7 +306,7 @@ impl<P: Program + Send + 'static> IcedElement<P> {
         Size::from((node.width.ceil() as i32, node.height.ceil() as i32))
     }
 
-    pub fn loop_handle(&self) -> LoopHandle<'static, GlobalState<PanelSpace>> {
+    pub fn loop_handle(&self) -> LoopHandle<'static, GlobalState<SpaceContainer>> {
         self.0.lock().unwrap().handle.clone()
     }
 
@@ -410,11 +411,11 @@ impl<P: Program + Send + 'static> IcedElementInternal<P> {
     }
 }
 
-impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for IcedElement<P> {
+impl<P: Program + Send + 'static> PointerTarget<GlobalState<SpaceContainer>> for IcedElement<P> {
     fn enter(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         event: &MotionEvent,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -431,8 +432,8 @@ impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for Ice
 
     fn motion(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         event: &MotionEvent,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -446,16 +447,16 @@ impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for Ice
 
     fn relative_motion(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         _event: &RelativeMotionEvent,
     ) {
     }
 
     fn button(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         event: &ButtonEvent,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -474,8 +475,8 @@ impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for Ice
 
     fn axis(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         frame: AxisFrame,
     ) {
         let mut internal = self.0.lock().unwrap();
@@ -497,12 +498,17 @@ impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for Ice
         let _ = internal.update(true);
     }
 
-    fn frame(&self, _seat: &Seat<GlobalState<PanelSpace>>, _data: &mut GlobalState<PanelSpace>) {}
+    fn frame(
+        &self,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
+    ) {
+    }
 
     fn leave(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         _serial: Serial,
         _time: u32,
     ) {
@@ -515,67 +521,67 @@ impl<P: Program + Send + 'static> PointerTarget<GlobalState<PanelSpace>> for Ice
 
     fn gesture_swipe_begin(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GestureSwipeBeginEvent,
     ) {
     }
     fn gesture_swipe_update(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GestureSwipeUpdateEvent,
     ) {
     }
     fn gesture_swipe_end(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GestureSwipeEndEvent,
     ) {
     }
     fn gesture_pinch_begin(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GesturePinchBeginEvent,
     ) {
     }
     fn gesture_pinch_update(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GesturePinchUpdateEvent,
     ) {
     }
     fn gesture_pinch_end(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GesturePinchEndEvent,
     ) {
     }
     fn gesture_hold_begin(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GestureHoldBeginEvent,
     ) {
     }
     fn gesture_hold_end(
         &self,
-        _: &Seat<GlobalState<PanelSpace>>,
-        _: &mut GlobalState<PanelSpace>,
+        _: &Seat<GlobalState<SpaceContainer>>,
+        _: &mut GlobalState<SpaceContainer>,
         _: &GestureHoldEndEvent,
     ) {
     }
 }
 
-impl<P: Program + Send + 'static> KeyboardTarget<GlobalState<PanelSpace>> for IcedElement<P> {
+impl<P: Program + Send + 'static> KeyboardTarget<GlobalState<SpaceContainer>> for IcedElement<P> {
     fn enter(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         _keys: Vec<KeysymHandle<'_>>,
         _serial: Serial,
     ) {
@@ -584,8 +590,8 @@ impl<P: Program + Send + 'static> KeyboardTarget<GlobalState<PanelSpace>> for Ic
 
     fn leave(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         _serial: Serial,
     ) {
         // TODO remove all held keys
@@ -593,8 +599,8 @@ impl<P: Program + Send + 'static> KeyboardTarget<GlobalState<PanelSpace>> for Ic
 
     fn key(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         _key: KeysymHandle<'_>,
         _state: KeyState,
         _serial: Serial,
@@ -605,8 +611,8 @@ impl<P: Program + Send + 'static> KeyboardTarget<GlobalState<PanelSpace>> for Ic
 
     fn modifiers(
         &self,
-        _seat: &Seat<GlobalState<PanelSpace>>,
-        _data: &mut GlobalState<PanelSpace>,
+        _seat: &Seat<GlobalState<SpaceContainer>>,
+        _data: &mut GlobalState<SpaceContainer>,
         modifiers: ModifiersState,
         _serial: Serial,
     ) {
@@ -854,5 +860,17 @@ where
             }
         }
         Vec::new()
+    }
+}
+
+impl<P: Program + Send> WaylandFocus for IcedElement<P> {
+    fn wl_surface(
+        &self,
+    ) -> Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface> {
+        None
+    }
+
+    fn same_client_as(&self, _: &smithay::reexports::wayland_server::backend::ObjectId) -> bool {
+        false
     }
 }

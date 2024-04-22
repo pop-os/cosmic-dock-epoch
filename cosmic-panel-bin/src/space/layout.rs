@@ -1,5 +1,6 @@
 use std::slice::IterMut;
 
+use crate::iced::elements::CosmicMappedInternal;
 use crate::minimize::MinimizeApplet;
 use crate::space::corner_element::RoundedRectangleSettings;
 use crate::space::Alignment;
@@ -14,40 +15,6 @@ use smithay::{desktop::Window, reexports::wayland_server::Resource, utils::Recta
 impl PanelSpace {
     pub(crate) fn layout_(&mut self) -> anyhow::Result<()> {
         let gap = self.gap();
-        let padding_u32 = self.config.padding() as u32;
-        let padding_scaled = padding_u32 as f64 * self.scale;
-        let anchor = self.config.anchor();
-        let spacing_u32 = self.config.spacing() as u32;
-        let spacing_scaled = spacing_u32 as f64 * self.scale;
-        // First try partitioning the panel evenly into N spaces.
-        // If all windows fit into each space, then set their offsets and return.
-        let list_thickness = match anchor {
-            PanelAnchor::Left | PanelAnchor::Right => self.dimensions.w,
-            PanelAnchor::Top | PanelAnchor::Bottom => self.dimensions.h,
-        };
-        let is_dock = !self.config.expand_to_edges();
-
-        let mut num_lists: u32 = 0;
-        if self
-            .config
-            .plugins_wings
-            .as_ref()
-            .map(|l| l.0.len() + l.1.len())
-            .unwrap_or_default()
-            > 0
-        {
-            num_lists += 2;
-        }
-        if self
-            .config
-            .plugins_center
-            .as_ref()
-            .map(|l| l.len())
-            .unwrap_or_default()
-            > 0
-        {
-            num_lists += 1;
-        }
 
         let make_indices_contiguous = |windows: &mut Vec<(usize, Window, Option<u32>)>| {
             windows.sort_by(|(a_i, _, _), (b_i, _, _)| a_i.cmp(b_i));
@@ -61,9 +28,12 @@ impl PanelSpace {
             .space
             .elements()
             .cloned()
-            .filter(|w| {
+            .filter_map(|w| {
+                let CosmicMappedInternal::Window(w) = w else {
+                    return None;
+                };
                 if !w.alive() {
-                    return true;
+                    return Some(w);
                 }
                 let size = w.bbox().size.to_f64().downscale(self.scale).to_i32_round();
 
@@ -81,7 +51,7 @@ impl PanelSpace {
                 } else {
                     to_map.push(w.clone());
                 }
-                unmap
+                unmap.then_some(w)
             })
             .collect_vec();
         for w in self.unmapped.drain(..).collect_vec() {
@@ -102,7 +72,8 @@ impl PanelSpace {
             }
         }
         for w in to_unmap {
-            self.space.unmap_elem(&w);
+            self.space
+                .unmap_elem(&CosmicMappedInternal::Window(w.clone()));
             self.unmapped.push(w);
         }
 
@@ -451,7 +422,11 @@ impl PanelSpace {
                         );
                         (x, y) = (cur.0 as i32, cur.1 as i32);
                         prev += size.h as f64 + spacing_u32 as f64;
-                        self.space.map_element(w.clone(), (x, y), false);
+                        self.space.map_element(
+                            CosmicMappedInternal::Window(w.clone()),
+                            (x, y),
+                            false,
+                        );
                     }
                     PanelAnchor::Top | PanelAnchor::Bottom => {
                         let cur = (
@@ -464,7 +439,11 @@ impl PanelSpace {
                         );
                         (x, y) = (cur.0 as i32, cur.1 as i32);
                         prev += size.w as f64 + spacing_u32 as f64;
-                        self.space.map_element(w.clone(), (x, y), false);
+                        self.space.map_element(
+                            CosmicMappedInternal::Window(w.clone()),
+                            (x, y),
+                            false,
+                        );
                     }
                 };
                 if minimize_priority.is_some() {
@@ -502,4 +481,26 @@ impl PanelSpace {
 
         Ok(())
     }
+
+    fn overflow(&mut self) {
+        // TODO
+    }
 }
+
+// if middle collides with left or right, it must be constrained
+// middle cant be constrained below 1/3 of the size of the output.
+// If the left or right extends past the min(1/3, middle), then the left or right must be constrained.
+// If there is no middle, then left and right must each be constrained to no less than 1/2. This is unlikely to happen.
+
+// middle constraint must go in priority order
+// applets with higher priority must be constrained first.
+// can't be constrained to be smaller than min(configured panel size suggested applet icon size * requested min, cur_applet size).
+
+// applets that don't offer a priority are constrained last, and don't shrink, but instead are moved to the overflow popup.
+// applets that are in the overflow popup are not constrained, but are instead moved to the overflow popup space.
+
+// If after all constraints are applied, the panel is still too small, then the panel will move the offending applet to overflow.
+
+// panels will now have up to 4 spaces.
+// they can have nested popups in a common use case now too.
+// overflow buttons go in the original space.

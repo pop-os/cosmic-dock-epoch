@@ -74,7 +74,7 @@ use xdg_shell_wrapper::{
 
 use cosmic_panel_config::{CosmicPanelBackground, CosmicPanelConfig, PanelAnchor};
 
-use crate::PanelCalloopMsg;
+use crate::{iced::elements::CosmicMappedInternal, PanelCalloopMsg};
 
 use super::corner_element::{init_shaders, RoundedRectangleSettings};
 
@@ -140,7 +140,7 @@ pub(crate) struct PanelSpace {
     pub(crate) egl_surface: Option<Rc<EGLSurface>>,
     pub(crate) c_display: Option<WlDisplay>,
     pub config: CosmicPanelConfig,
-    pub(crate) space: Space<Window>,
+    pub(crate) space: Space<CosmicMappedInternal>,
     pub(crate) unmapped: Vec<Window>,
     pub(crate) damage_tracked_renderer: Option<OutputDamageTracker>,
     pub(crate) clients_left: Clients,
@@ -153,7 +153,8 @@ pub(crate) struct PanelSpace {
     pub(crate) suggested_length: Option<u32>,
     // size of the panel
     pub(crate) actual_size: Size<i32, Logical>,
-    // dimensions of the layer surface
+    /// dimensions of the layer surface
+    /// this will be the same as the output size on the major axis of the panel
     pub(crate) dimensions: Size<i32, Logical>,
     // Logical size of the panel, with the applied animation state
     pub(crate) container_length: i32,
