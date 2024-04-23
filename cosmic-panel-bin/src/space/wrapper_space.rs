@@ -109,16 +109,21 @@ impl WrapperSpace for PanelSpace {
         positioner_state: PositionerState,
     ) -> anyhow::Result<()> {
         self.apply_positioner_state(&positioner, positioner_state, &s_surface);
-        // TODO handle popups not on main surface
-        if !self.popups.is_empty() {
-            self.popups.clear();
-            return Ok(());
-        }
-
         let c_wl_surface = compositor_state.create_surface(qh);
 
+        let parent = self.popups.iter().find_map(|p| {
+            if s_surface
+                .get_parent_surface()
+                .is_some_and(|s| &s == p.s_surface.wl_surface())
+            {
+                Some(p.c_popup.xdg_surface())
+            } else {
+                None
+            }
+        });
+
         let c_popup = popup::Popup::from_surface(
-            None,
+            parent,
             &positioner,
             qh,
             c_wl_surface.clone(),
@@ -152,8 +157,9 @@ impl WrapperSpace for PanelSpace {
             c_wl_surface.set_input_region(Some(input_region.wl_region()));
         }
 
-        self.layer.as_ref().unwrap().get_popup(c_popup.xdg_popup());
-
+        if parent.is_none() {
+            self.layer.as_ref().unwrap().get_popup(c_popup.xdg_popup());
+        }
         let fractional_scale =
             fractional_scale_manager.map(|f| f.fractional_scaling(&c_wl_surface, &qh));
 
@@ -174,7 +180,7 @@ impl WrapperSpace for PanelSpace {
             c_wl_surface.set_buffer_scale(self.scale as i32);
         }
 
-        // //must be done after role is assigned as popup
+        // must be done after role is assigned as popup
         c_wl_surface.commit();
 
         let cur_popup_state = Some(WrapperPopupState::WaitConfigure);

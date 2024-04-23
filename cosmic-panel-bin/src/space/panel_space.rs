@@ -981,20 +981,24 @@ impl PanelSpace {
             parent_size,
             parent_configure: _,
         } = pos_state;
-        let parent_window = if let Some(s) = self
-            .space
-            .elements()
-            .find(|w| w.wl_surface() == s_surface.get_parent_surface().as_ref().cloned())
-        {
-            s
+        let p_offset = if let Some(s) = self.space.elements().find(|w| {
+            s_surface
+                .get_parent_surface()
+                .is_some_and(|s| w.wl_surface() == Some(s))
+        }) {
+            self.space
+                .element_location(s)
+                .unwrap_or_else(|| (0, 0).into())
+        } else if let Some(p) = self.popups.iter().find(|p| {
+            s_surface
+                .get_parent_surface()
+                .is_some_and(|s| &s == p.s_surface.wl_surface())
+        }) {
+            // panic!("Popup parent surface not found in space");
+            p.rectangle.loc
         } else {
             return;
-        };
-
-        let p_offset = self
-            .space
-            .element_location(parent_window)
-            .unwrap_or_else(|| (0, 0).into());
+        }; // TODO check overflow popup spaces too
 
         positioner.set_size(rect_size.w.max(1), rect_size.h.max(1));
         positioner.set_anchor_rect(
